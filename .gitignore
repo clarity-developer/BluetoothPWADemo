@@ -1,0 +1,37 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor settings
+.vscode/
+.idea/
+*.code-workspace
+
+# Logs and temp
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Python cache (if tooling scripts are added later)
+__pycache__/
+*.pyc
+
+# PlatformIO build artifacts
+firmware/**/.pio/
+firmware/**/.pioenvs/
+firmware/**/.piolibdeps/
+firmware/**/.sconsign.dblite
+
+# C/C++ build outputs
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.exe
+
+# Local web server and package artifacts
+node_modules/
+coverage/
+dist/
