@@ -1,7 +1,5 @@
 const BLE_SERVICE_UUID = "2d6b5ce7-7f30-4df0-a318-4cc4d7cb2f10";
 const TELEMETRY_CHAR_UUID = "df0da48d-e16f-4d08-90ee-1f4a4532f5bb";
-const DEVICE_NAME_PREFIX = "Instr-";
-const KNOWN_NAME_STORAGE_KEY = "bleKnownDeviceNames";
 
 const connectBtn = document.getElementById("connectBtn");
 const disconnectBtn = document.getElementById("disconnectBtn");
@@ -21,43 +19,6 @@ let activeDevice = null;
 let activeServer = null;
 let activeCharacteristic = null;
 let packetCount = 0;
-
-function getStoredNames() {
-  try {
-    const raw = localStorage.getItem(KNOWN_NAME_STORAGE_KEY);
-    if (!raw) {
-      return [];
-    }
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed.filter((x) => typeof x === "string" && x.trim().length > 0);
-  } catch {
-    return [];
-  }
-}
-
-function saveStoredNames(names) {
-  localStorage.setItem(KNOWN_NAME_STORAGE_KEY, JSON.stringify(names));
-}
-
-function rememberDeviceName(name) {
-  if (!name || typeof name !== "string") {
-    return;
-  }
-
-  const names = getStoredNames();
-  if (!names.includes(name)) {
-    names.push(name);
-    saveStoredNames(names);
-  }
-}
-
-function forgetStoredDeviceName(name) {
-  const names = getStoredNames().filter((x) => x !== name);
-  saveStoredNames(names);
-}
 
 function appendOption(value, text) {
   const opt = document.createElement("option");
@@ -153,7 +114,6 @@ async function connect(device) {
 
   setStatus(`connected: ${activeDevice.name || "esp32"}`);
   appendEvent(`connected to ${activeDevice.name || "esp32"}`);
-  rememberDeviceName(activeDevice.name);
 }
 
 async function requestAndConnect() {
@@ -165,7 +125,7 @@ async function requestAndConnect() {
 
   try {
     const device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [BLE_SERVICE_UUID], namePrefix: DEVICE_NAME_PREFIX }],
+      filters: [{ services: [BLE_SERVICE_UUID] }],
       optionalServices: [BLE_SERVICE_UUID]
     });
 
@@ -202,15 +162,7 @@ async function refreshKnownDevices() {
   }
 
   if (!navigator.bluetooth.getDevices) {
-    const names = getStoredNames();
-    if (names.length === 0) {
-      appendOption("", "No known devices");
-      return;
-    }
-
-    for (const name of names) {
-      appendOption(`name:${name}`, name);
-    }
+    appendOption("", "Known devices unsupported");
     return;
   }
 
@@ -223,7 +175,6 @@ async function refreshKnownDevices() {
 
   for (const d of devices) {
     appendOption(d.id, d.name || `Unnamed (${d.id.slice(0, 6)})`);
-    rememberDeviceName(d.name);
   }
 }
 
@@ -233,22 +184,7 @@ async function connectKnownSelection() {
   }
 
   if (!navigator.bluetooth.getDevices) {
-    if (!knownDevices.value.startsWith("name:")) {
-      return;
-    }
-
-    const selectedName = knownDevices.value.slice(5);
-    try {
-      const device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [BLE_SERVICE_UUID], name: selectedName }],
-        optionalServices: [BLE_SERVICE_UUID]
-      });
-      await connect(device);
-      return;
-    } catch (err) {
-      appendEvent(`connect failed: ${err.message}`);
-      return;
-    }
+    return;
   }
 
   const devices = await navigator.bluetooth.getDevices();
@@ -267,14 +203,8 @@ async function forgetSelected() {
   }
 
   if (!navigator.bluetooth.getDevices) {
-    if (!knownDevices.value.startsWith("name:")) {
-      appendEvent("no remembered device selected");
-      return;
-    }
-    const selectedName = knownDevices.value.slice(5);
-    forgetStoredDeviceName(selectedName);
-    appendEvent(`forgot ${selectedName}`);
-    await refreshKnownDevices();
+    setStatus("forget unsupported", true);
+    appendEvent("forget not supported in this browser");
     return;
   }
 
@@ -294,7 +224,6 @@ async function forgetSelected() {
     }
 
     await selected.forget();
-    forgetStoredDeviceName(selected.name);
     appendEvent(`forgot ${selected.name || selected.id}`);
     await refreshKnownDevices();
   } catch (err) {
