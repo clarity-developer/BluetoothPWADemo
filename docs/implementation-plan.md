@@ -23,3 +23,9 @@
 ## 4) Deployment Target
 - Publish webapp folder to GitHub Pages.
 - Use HTTPS Pages URL in Bluefy to allow BLE permissions.
+
+## 5) iOS Wrapper and CI Build
+- Wrap webapp with Capacitor iOS target using generated native project.
+- Build static web assets into `webapp/www` before Capacitor sync.
+- Run unsigned iOS archive build on GitHub Actions macOS runner.
+- Upload `.xcarchive` as workflow artifact for inspection/signing downstream.

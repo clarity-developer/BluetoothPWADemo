@@ -35,3 +35,6 @@ firmware/**/.sconsign.dblite
 node_modules/
 coverage/
 dist/
+webapp/www/
+webapp/ios/
+webapp/.capacitor/
