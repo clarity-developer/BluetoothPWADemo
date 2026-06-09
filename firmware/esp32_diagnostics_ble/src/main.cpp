@@ -142,7 +142,10 @@ void setup() {
   updateBootIdentityValue();
 
   NimBLEAdvertising *advertising = NimBLEDevice::getAdvertising();
+  advertising->setName(DEVICE_NAME);
+  advertising->enableScanResponse(true);
   advertising->addServiceUUID(SERVICE_UUID);
+  advertising->setPreferredParams(0x06, 0x12);
   NimBLEDevice::startAdvertising();
 
   Serial.println("BLE diagnostics demo started");
