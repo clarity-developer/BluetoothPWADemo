@@ -1,4 +1,4 @@
-const CACHE_NAME = "ble-diag-pwa-v3";
+const CACHE_NAME = "ble-diag-pwa-v5";
 const APP_ASSETS = [
   "./",
   "./index.html",
@@ -39,6 +39,10 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  const requestUrl = new URL(event.request.url);
+  const cacheableScheme = requestUrl.protocol === "http:" || requestUrl.protocol === "https:";
+  const cacheableRequest = cacheableScheme && requestUrl.origin === self.location.origin;
+
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
@@ -46,9 +50,13 @@ self.addEventListener("fetch", (event) => {
       }
 
       return fetch(event.request).then((networkResponse) => {
-        const cloned = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
+        if (cacheableRequest && networkResponse.ok) {
+          const cloned = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
+        }
         return networkResponse;
+      }).catch(() => {
+        return caches.match("./index.html");
       });
     })
   );

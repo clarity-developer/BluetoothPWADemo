@@ -1,5 +1,9 @@
 const BLE_SERVICE_UUID = "2d6b5ce7-7f30-4df0-a318-4cc4d7cb2f10";
 const TELEMETRY_CHAR_UUID = "df0da48d-e16f-4d08-90ee-1f4a4532f5bb";
+const NAME_CACHE_KEY = "bleDeviceNameCache";
+const LAST_DEVICE_NAME_KEY = "bleLastDeviceName";
+const BLE_DEBUG = true;
+const APP_BUILD = "2026-06-09-namefix-v2";
 
 const connectBtn = document.getElementById("connectBtn");
 const disconnectBtn = document.getElementById("disconnectBtn");
@@ -19,12 +23,141 @@ let activeDevice = null;
 let activeServer = null;
 let activeCharacteristic = null;
 let packetCount = 0;
+const recentPayloadTimestamps = new Map();
+
+function isDuplicatePayload(payloadText) {
+  const now = Date.now();
+
+  for (const [key, ts] of recentPayloadTimestamps) {
+    if (now - ts > 1500) {
+      recentPayloadTimestamps.delete(key);
+    }
+  }
+
+  const previousTs = recentPayloadTimestamps.get(payloadText);
+  recentPayloadTimestamps.set(payloadText, now);
+  return previousTs !== undefined && now - previousTs < 1000;
+}
+
+function loadNameCache() {
+  try {
+    const raw = localStorage.getItem(NAME_CACHE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return {};
+    }
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function saveNameCache(cache) {
+  localStorage.setItem(NAME_CACHE_KEY, JSON.stringify(cache));
+}
+
+function saveLastDeviceName(name) {
+  if (!name || typeof name !== "string") {
+    return;
+  }
+  localStorage.setItem(LAST_DEVICE_NAME_KEY, name);
+}
+
+function loadLastDeviceName() {
+  const value = localStorage.getItem(LAST_DEVICE_NAME_KEY);
+  if (!value || typeof value !== "string") {
+    return "";
+  }
+  return value;
+}
+
+function rememberDeviceName(device) {
+  if (!device || !device.id || !device.name) {
+    if (device && device.id) {
+      debugLog(`remember skip id=${device.id.slice(0, 6)} name=${device.name || "(empty)"}`);
+    }
+    return;
+  }
+
+  const cache = loadNameCache();
+  cache[device.id] = device.name;
+  saveNameCache(cache);
+  saveLastDeviceName(device.name);
+  debugLog(`remember id=${device.id.slice(0, 6)} name=${device.name}`);
+}
+
+function labelForDevice(device) {
+  if (!device || !device.id) {
+    debugLog("label no-device");
+    return "Unnamed";
+  }
+
+  if (device.name) {
+    debugLog(`label direct id=${device.id.slice(0, 6)} name=${device.name}`);
+    return device.name;
+  }
+
+  const cache = loadNameCache();
+  if (cache[device.id]) {
+    debugLog(`label id-cache id=${device.id.slice(0, 6)} name=${cache[device.id]}`);
+    return cache[device.id];
+  }
+
+  const cachedNames = Object.values(cache).filter((x) => typeof x === "string" && x.length > 0);
+  if (cachedNames.length === 1) {
+    debugLog(`label single-cache id=${device.id.slice(0, 6)} name=${cachedNames[0]}`);
+    return cachedNames[0];
+  }
+
+  const lastName = loadLastDeviceName();
+  if (lastName) {
+    debugLog(`label last-name id=${device.id.slice(0, 6)} name=${lastName}`);
+    return lastName;
+  }
+
+  debugLog(`label unnamed id=${device.id.slice(0, 6)}`);
+  return `Unnamed (${device.id.slice(0, 6)})`;
+}
+
+function reconcileUnnamedDevices(devices) {
+  if (!Array.isArray(devices) || devices.length !== 1) {
+    return;
+  }
+
+  const only = devices[0];
+  if (!only || !only.id || only.name) {
+    return;
+  }
+
+  if (!activeDevice || !activeDevice.name) {
+    return;
+  }
+
+  const cache = loadNameCache();
+  cache[only.id] = activeDevice.name;
+  saveNameCache(cache);
+  saveLastDeviceName(activeDevice.name);
+  debugLog(`reconcile id=${only.id.slice(0, 6)} using active=${activeDevice.name}`);
+}
 
 function appendOption(value, text) {
   const opt = document.createElement("option");
   opt.value = value;
   opt.textContent = text;
   knownDevices.appendChild(opt);
+}
+
+function appendActiveDeviceOption() {
+  if (!activeDevice || !activeDevice.id) {
+    appendOption("", "No known devices");
+    return;
+  }
+
+  const label = labelForDevice(activeDevice);
+  appendOption(activeDevice.id, label);
 }
 
 function setStatus(text, isWarn = false) {
@@ -44,6 +177,13 @@ function appendEvent(message) {
   }
 }
 
+function debugLog(message) {
+  if (!BLE_DEBUG) {
+    return;
+  }
+  // appendEvent(`[dbg] ${message}`);
+}
+
 function updateMetrics(data) {
   if (typeof data.voidage === "number") {
     voidageValue.textContent = `${data.voidage.toFixed(1)} %`;
@@ -58,10 +198,47 @@ function updateMetrics(data) {
   }
 }
 
+function applyResolvedDeviceName(name) {
+  if (!name || !activeDevice || !activeDevice.id) {
+    return;
+  }
+
+  const cache = loadNameCache();
+  cache[activeDevice.id] = name;
+  saveNameCache(cache);
+  saveLastDeviceName(name);
+
+  setStatus(`connected: ${name}`);
+  debugLog(`resolved name id=${activeDevice.id.slice(0, 6)} name=${name}`);
+}
+
+function tryApplyIdentityPayload(rawText) {
+  try {
+    const payload = JSON.parse(rawText);
+    if (payload.device_name) {
+      applyResolvedDeviceName(payload.device_name);
+      return payload.type === "boot";
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 function handleTelemetry(event) {
   const text = new TextDecoder().decode(event.target.value);
+
+  if (isDuplicatePayload(text)) {
+    debugLog("drop duplicate payload");
+    return;
+  }
+
   packetCount += 1;
   packetsValue.textContent = String(packetCount);
+
+  if (tryApplyIdentityPayload(text)) {
+    return;
+  }
 
   try {
     const payload = JSON.parse(text);
@@ -89,8 +266,38 @@ function handleTelemetry(event) {
 }
 
 function onDisconnected() {
+  if (activeCharacteristic) {
+    activeCharacteristic.removeEventListener("characteristicvaluechanged", handleTelemetry);
+  }
+  activeServer = null;
+  activeCharacteristic = null;
   setStatus("disconnected", true);
   appendEvent("BLE disconnected");
+}
+
+async function teardownActiveConnection() {
+  if (activeCharacteristic) {
+    activeCharacteristic.removeEventListener("characteristicvaluechanged", handleTelemetry);
+    try {
+      await activeCharacteristic.stopNotifications();
+    } catch {
+      // Ignore; characteristic may already be stopped/disconnected.
+    }
+  }
+
+  if (activeDevice) {
+    activeDevice.removeEventListener("gattserverdisconnected", onDisconnected);
+    if (activeDevice.gatt && activeDevice.gatt.connected) {
+      try {
+        activeDevice.gatt.disconnect();
+      } catch {
+        // Ignore disconnect errors while replacing connection.
+      }
+    }
+  }
+
+  activeServer = null;
+  activeCharacteristic = null;
 }
 
 async function connect(device) {
@@ -98,7 +305,10 @@ async function connect(device) {
     throw new Error("No BLE device selected");
   }
 
+  await teardownActiveConnection();
+
   setStatus("connecting");
+  debugLog(`connect start id=${device.id ? device.id.slice(0, 6) : "none"} name=${device.name || "(empty)"}`);
 
   activeDevice = device;
   activeDevice.removeEventListener("gattserverdisconnected", onDisconnected);
@@ -112,8 +322,21 @@ async function connect(device) {
   activeCharacteristic.removeEventListener("characteristicvaluechanged", handleTelemetry);
   activeCharacteristic.addEventListener("characteristicvaluechanged", handleTelemetry);
 
-  setStatus(`connected: ${activeDevice.name || "esp32"}`);
-  appendEvent(`connected to ${activeDevice.name || "esp32"}`);
+  // Some browsers omit BluetoothDevice.name entirely; read characteristic once for boot identity payload.
+  try {
+    const initialValue = await activeCharacteristic.readValue();
+    const initialText = new TextDecoder().decode(initialValue.buffer);
+    if (!tryApplyIdentityPayload(initialText)) {
+      debugLog("initial read had no boot identity payload");
+    }
+  } catch (err) {
+    debugLog(`initial read failed: ${err.message}`);
+  }
+
+  const connectedLabel = labelForDevice(activeDevice);
+  setStatus(`connected: ${connectedLabel}`);
+  appendEvent(`connected to ${connectedLabel}`);
+  rememberDeviceName(activeDevice);
 }
 
 async function requestAndConnect() {
@@ -128,6 +351,7 @@ async function requestAndConnect() {
       filters: [{ services: [BLE_SERVICE_UUID] }],
       optionalServices: [BLE_SERVICE_UUID]
     });
+    debugLog(`chooser id=${device.id ? device.id.slice(0, 6) : "none"} name=${device.name || "(empty)"}`);
 
     await connect(device);
     await refreshKnownDevices();
@@ -145,7 +369,7 @@ async function disconnectActive() {
   }
 
   try {
-    activeDevice.gatt.disconnect();
+    await teardownActiveConnection();
     setStatus("disconnected");
   } catch (err) {
     setStatus("disconnect failed", true);
@@ -155,6 +379,7 @@ async function disconnectActive() {
 
 async function refreshKnownDevices() {
   knownDevices.innerHTML = "";
+  debugLog("refresh start");
 
   if (!navigator.bluetooth) {
     appendOption("", "Web Bluetooth unsupported");
@@ -162,20 +387,78 @@ async function refreshKnownDevices() {
   }
 
   if (!navigator.bluetooth.getDevices) {
-    appendOption("", "Known devices unsupported");
+    debugLog("refresh fallback: getDevices unsupported");
+    appendActiveDeviceOption();
     return;
   }
 
-  const devices = await navigator.bluetooth.getDevices();
+  let devices = [];
+  try {
+    devices = await navigator.bluetooth.getDevices();
+  } catch (err) {
+    appendEvent(`known devices unavailable: ${err.message}`);
+    debugLog(`getDevices error=${err.message}`);
+    appendActiveDeviceOption();
+    return;
+  }
+
+  debugLog(`getDevices count=${devices.length}`);
+  for (const d of devices) {
+    debugLog(`getDevices id=${d.id ? d.id.slice(0, 6) : "none"} name=${d.name || "(empty)"}`);
+  }
+
+  reconcileUnnamedDevices(devices);
 
   if (devices.length === 0) {
-    appendOption("", "No known devices");
+    appendActiveDeviceOption();
     return;
   }
 
+  appendOption("", "Select device...");
+  let hasActive = false;
   for (const d of devices) {
-    appendOption(d.id, d.name || `Unnamed (${d.id.slice(0, 6)})`);
+    appendOption(d.id, labelForDevice(d));
+    if (activeDevice && d.id === activeDevice.id) {
+      hasActive = true;
+    }
   }
+
+  if (activeDevice && activeDevice.id && !hasActive) {
+    appendOption(activeDevice.id, labelForDevice(activeDevice));
+  }
+}
+
+async function pickDeviceForDropdown() {
+  if (!navigator.bluetooth) {
+    setStatus("web bluetooth unsupported", true);
+    appendEvent("browser does not support Web Bluetooth");
+    return;
+  }
+
+  try {
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [BLE_SERVICE_UUID] }],
+      optionalServices: [BLE_SERVICE_UUID]
+    });
+    debugLog(`devices click chooser id=${device.id ? device.id.slice(0, 6) : "none"} name=${device.name || "(empty)"}`);
+
+    activeDevice = device;
+    rememberDeviceName(device);
+    await refreshKnownDevices();
+    knownDevices.value = device.id;
+    appendEvent(`selected ${device.name || "esp32"}`);
+  } catch (err) {
+    appendEvent(`device selection cancelled: ${err.message}`);
+  }
+}
+
+async function handleDevicesClick() {
+  if (navigator.bluetooth && navigator.bluetooth.getDevices) {
+    await refreshKnownDevices();
+    return;
+  }
+
+  await pickDeviceForDropdown();
 }
 
 async function connectKnownSelection() {
@@ -184,12 +467,23 @@ async function connectKnownSelection() {
   }
 
   if (!navigator.bluetooth.getDevices) {
+    appendEvent("known device list unsupported, use Connect");
     return;
   }
 
-  const devices = await navigator.bluetooth.getDevices();
+  let devices = [];
+  try {
+    devices = await navigator.bluetooth.getDevices();
+  } catch (err) {
+    appendEvent(`known devices unavailable: ${err.message}`);
+    return;
+  }
+
   const selected = devices.find((d) => d.id === knownDevices.value);
   if (!selected) {
+    if (activeDevice && activeDevice.id === knownDevices.value) {
+      await connect(activeDevice);
+    }
     return;
   }
 
@@ -259,10 +553,11 @@ async function registerServiceWorker() {
 
 connectBtn.addEventListener("click", requestAndConnect);
 disconnectBtn.addEventListener("click", disconnectActive);
-refreshDevicesBtn.addEventListener("click", refreshKnownDevices);
+refreshDevicesBtn.addEventListener("click", handleDevicesClick);
 forgetBtn.addEventListener("click", forgetSelected);
 knownDevices.addEventListener("change", connectKnownSelection);
 
 refreshKnownDevices();
 registerServiceWorker();
+appendEvent(`build ${APP_BUILD}`);
 appendEvent("ready");

@@ -20,6 +20,7 @@ int runState = 0;
 unsigned long lastMetricsMs = 0;
 unsigned long lastEventMs = 0;
 unsigned long lastRunStateMs = 0;
+unsigned long lastBootMs = 0;
 
 const char *eventPool[] = {
   "started PWM",
@@ -66,6 +67,19 @@ void notifyJson(const String &jsonPayload) {
 
   telemetryChar->setValue(jsonPayload.c_str());
   telemetryChar->notify();
+}
+
+void updateBootIdentityValue() {
+  if (telemetryChar == nullptr) {
+    return;
+  }
+
+  String bootPayload = "{\"type\":\"boot\",\"ts\":";
+  bootPayload += millis();
+  bootPayload += ",\"device_name\":\"";
+  bootPayload += DEVICE_NAME;
+  bootPayload += "\",\"message\":\"esp32 online\"}";
+  telemetryChar->setValue(bootPayload.c_str());
 }
 
 void sendMetrics() {
@@ -125,10 +139,7 @@ void setup() {
     TELEMETRY_CHAR_UUID,
     NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::READ
   );
-  String bootPayload = "{\"type\":\"boot\",\"device_name\":\"";
-  bootPayload += DEVICE_NAME;
-  bootPayload += "\",\"message\":\"esp32 online\"}";
-  telemetryChar->setValue(bootPayload.c_str());
+  updateBootIdentityValue();
 
   NimBLEAdvertising *advertising = NimBLEDevice::getAdvertising();
   advertising->addServiceUUID(SERVICE_UUID);
@@ -139,6 +150,16 @@ void setup() {
 
 void loop() {
   unsigned long now = millis();
+
+  if (!centralConnected) {
+    // Keep characteristic readable with current boot identity while waiting for central.
+    if (now - lastBootMs >= 2000) {
+      lastBootMs = now;
+      updateBootIdentityValue();
+    }
+    delay(20);
+    return;
+  }
 
   if (now - lastMetricsMs >= 1000) {
     lastMetricsMs = now;
