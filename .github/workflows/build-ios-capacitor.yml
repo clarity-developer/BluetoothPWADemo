@@ -100,11 +100,10 @@ jobs:
           echo "=== Installed certificates ==="
           security find-identity -v -p codesigning
           
-      # ========== EXPORT WITH SIGNING ==========
-      - name: Export IPA with automatic signing
+      - name: Export IPA (simplified)
         run: |
+          # Create a minimal ExportOptions.plist
           BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" ios/App/App/Info.plist)
-          echo "Bundle ID: $BUNDLE_ID"
           
           cat > "$RUNNER_TEMP/ExportOptions.plist" << EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -115,21 +114,20 @@ jobs:
               <string>app-store-connect</string>
               <key>teamID</key>
               <string>${{ secrets.TEAM_ID }}</string>
-              <key>signingStyle</key>
-              <string>automatic</string>
           </dict>
           </plist>
           EOF
           
-          echo "ExportOptions.plist:"
-          cat "$RUNNER_TEMP/ExportOptions.plist"
-          
-          xcodebuild -exportArchive \
+          # Use xcodebuild with timeout and force
+          /usr/bin/xcrun xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -allowProvisioningUpdates \
-            -allowProvisioningDeviceRegistration
+            -verbose
+          
+          echo "Export completed. Checking for IPA:"
+          find "$RUNNER_TEMP/export" -name "*.ipa"
       
       - name: Upload to TestFlight
         uses: apple-actions/upload-testflight-build@v1
