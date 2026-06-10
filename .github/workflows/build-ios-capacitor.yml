@@ -54,28 +54,23 @@ jobs:
         env:
           MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}          
 
+      # ========== CODE SIGNING SETUP ==========
       - name: Setup provisioning profile
         run: |
-          cat > profile_base64.txt << 'EOF'
-          ${{ secrets.MOBILEPROVISION_BASE64 }}
-          EOF
-          base64 -D profile_base64.txt > profile.mobileprovision
+          echo "${{ secrets.MOBILEPROVISION_BASE64 }}" | base64 --decode > profile.mobileprovision
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
-          rm profile_base64.txt
+          file profile.mobileprovision
       
       - name: Setup certificate
         run: |
-          cat > cert_base64.txt << 'EOF'
-          ${{ secrets.P12_BASE64 }}
-          EOF
-          base64 -D cert_base64.txt > certificate.p12
+          echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
           security create-keychain -p temp build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p temp build.keychain
           security import certificate.p12 -k build.keychain -P ${{ secrets.P12_PASSWORD }} -A -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:apple: -s -k temp build.keychain
-          rm cert_base64.txt
+      # ========== END CODE SIGNING SETUP ==========
 
       - name: Archive iOS app (signed)
         run: |
