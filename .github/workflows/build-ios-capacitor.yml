@@ -43,7 +43,25 @@ jobs:
           fi
           npx cap sync ios
 
-      - name: Archive iOS app (unsigned)
+      # ========== NEW: CODE SIGNING SETUP ==========
+      - name: Setup provisioning profile
+        run: |
+          echo ${{ secrets.MOBILEPROVISION_BASE64 }} | base64 --decode > profile.mobileprovision
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+      
+      - name: Setup certificate
+        run: |
+          echo ${{ secrets.P12_BASE64 }} | base64 --decode > certificate.p12
+          security create-keychain -p temp build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p temp build.keychain
+          security import certificate.p12 -k build.keychain -P ${{ secrets.P12_PASSWORD }} -A -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:apple: -s -k temp build.keychain
+      # ========== END NEW SECTION ==========
+
+      # ========== MODIFIED: Archive with signing ==========
+      - name: Archive iOS app (signed)
         run: |
           cd ios/App
           xcodebuild \
@@ -52,10 +70,48 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM=${{ secrets.TEAM_ID }} \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="GitHubActions_AppStore_Profile" \
             archive
+      # ========== END MODIFIED SECTION ==========
 
-      - name: Upload archive
+      - name: Export IPA
+        run: |
+          # Create ExportOptions.plist
+          cat > "$RUNNER_TEMP/ExportOptions.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>teamID</key>
+              <string>${{ secrets.TEAM_ID }}</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>ac.clarity.blecommissioning</key>
+                  <string>GitHubActions_AppStore_Profile</string>
+              </dict>
+          </dict>
+          </plist>
+          EOF
+          
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Upload to TestFlight
+        uses: apple-actions/upload-testflight-build@v1
+        with:
+          app-path: ${{ runner.temp }}/export/App.ipa
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+
+      # Optional: Keep your archive as artifact for debugging
+      - name: Upload archive (artifact)
         uses: actions/upload-artifact@v4
         with:
           name: ios-xcarchive
