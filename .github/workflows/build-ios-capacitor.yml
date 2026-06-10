@@ -72,7 +72,16 @@ jobs:
           security set-key-partition-list -S apple-tool:apple: -s -k temp build.keychain
       # ========== END CODE SIGNING SETUP ==========
 
-      - name: Archive iOS app (signed)
+      # ========== FIX BUNDLE ID ==========
+      - name: Fix bundle ID in Info.plist
+        run: |
+          cd ios/App/App
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ac.clarity.blecommissioning" Info.plist
+          echo "Bundle ID is now:"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Info.plist
+      
+      # ========== ARCHIVE WITH AUTOMATIC SIGNING ==========
+      - name: Archive iOS app
         run: |
           cd ios/App
           xcodebuild \
@@ -82,35 +91,11 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             DEVELOPMENT_TEAM=${{ secrets.TEAM_ID }} \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="iPhone Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="GitHubActions_AppStore_Profile" \
-            PRODUCT_BUNDLE_IDENTIFIER="ac.clarity.blecommissioning" \
+            CODE_SIGN_STYLE=Automatic \
+            -allowProvisioningUpdates \
             archive
-
-      - name: Diagnose provisioning profiles
-        run: |
-          echo "=== Available provisioning profiles ==="
-          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
-          echo ""
-          echo "=== Profile contents ==="
-          for profile in ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision; do
-            echo "Profile: $(basename "$profile")"
-            security cms -D -i "$profile" | grep -A1 "Name\|UUID\|TeamName\|AppIDName"
-            echo "---"
-          done
-          echo ""
-          echo "=== Installed certificates ==="
-          security find-identity -v -p codesigning
-
-      - name: Show bundle IDs
-        run: |
-          echo "=== App bundle ID ==="
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" ios/App/App/Info.plist
-          echo ""
-          echo "=== Profile bundle ID ==="
-          security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision | grep -A1 "application-identifier" | tail -1 | tr -d '[:space:]' | sed 's/<string>//' | sed 's/<\/string>//'          
-          
+      
+      # ========== EXPORT WITH AUTOMATIC SIGNING ==========
       - name: Export IPA
         run: |
           cat > "$RUNNER_TEMP/ExportOptions.plist" << EOF
@@ -123,23 +108,18 @@ jobs:
               <key>teamID</key>
               <string>${{ secrets.TEAM_ID }}</string>
               <key>signingStyle</key>
-              <string>manual</string>
-              <key>provisioningProfiles</key>
-              <dict>
-                  <key>ac.clarity.blecommissioning</key>
-                  <string>GitHubActions_AppStore_Profile</string>
-              </dict>
+              <string>automatic</string>
           </dict>
           </plist>
           EOF
           
-          /usr/bin/xcrun xcodebuild -exportArchive \
+          xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -allowProvisioningUpdates \
-            -verbose
+            -allowProvisioningUpdates
       
+      # ========== UPLOAD ==========
       - name: Upload to TestFlight
         uses: apple-actions/upload-testflight-build@v1
         with:
