@@ -43,10 +43,21 @@ jobs:
           fi
           npx cap sync ios
 
+      - name: Debug - Check if secret exists
+        run: |
+          if [ -n "${{ secrets.MOBILEPROVISION_BASE64 }}" ]; then
+            echo "Secret exists and has length: ${#MOBILEPROVISION_BASE64}"
+          else
+            echo "Secret is EMPTY or not set"
+            exit 1
+          fi
+        env:
+          MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}          
+
       # ========== NEW: CODE SIGNING SETUP ==========
       - name: Setup provisioning profile
         run: |
-          echo ${{ secrets.MOBILEPROVISION_BASE64 }} | base64 --decode > profile.mobileprovision
+          echo "${{ secrets.MOBILEPROVISION_BASE64 }}" | base64 -d > profile.mobileprovision
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
       
