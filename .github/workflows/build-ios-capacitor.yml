@@ -84,55 +84,52 @@ jobs:
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
             archive
-      
-      # ========== EXPORT WITH SIGNING ==========
-      - name: Export IPA with distribution signing
+
+      - name: Diagnose provisioning profiles
         run: |
-          # Get your bundle ID from the project
+          echo "=== Available provisioning profiles ==="
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
+          echo ""
+          echo "=== Profile contents ==="
+          for profile in ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision; do
+            echo "Profile: $(basename "$profile")"
+            security cms -D -i "$profile" | grep -A1 "Name\|UUID\|TeamName\|AppIDName"
+            echo "---"
+          done
+          echo ""
+          echo "=== Installed certificates ==="
+          security find-identity -v -p codesigning
+          
+      # ========== EXPORT WITH SIGNING ==========
+      - name: Export IPA with automatic signing
+        run: |
           BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" ios/App/App/Info.plist)
           echo "Bundle ID: $BUNDLE_ID"
           
-          # Create ExportOptions.plist with verbose settings
           cat > "$RUNNER_TEMP/ExportOptions.plist" << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-              <key>destination</key>
-              <string>export</string>
               <key>method</key>
               <string>app-store-connect</string>
               <key>teamID</key>
               <string>${{ secrets.TEAM_ID }}</string>
               <key>signingStyle</key>
-              <string>manual</string>
-              <key>stripSwiftSymbols</key>
-              <true/>
-              <key>uploadSymbols</key>
-              <true/>
-              <key>provisioningProfiles</key>
-              <dict>
-                  <key>$BUNDLE_ID</key>
-                  <string>GitHubActions_AppStore_Profile</string>
-              </dict>
+              <string>automatic</string>
           </dict>
           </plist>
           EOF
           
-          echo "ExportOptions.plist created:"
+          echo "ExportOptions.plist:"
           cat "$RUNNER_TEMP/ExportOptions.plist"
           
-          # Export with verbose output and timeout protection
-          set -o pipefail
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -allowProvisioningUpdates \
-            -verbose 2>&1 | tee "$RUNNER_TEMP/export.log"
-          
-          echo "Export completed. Checking output:"
-          ls -la "$RUNNER_TEMP/export/"
+            -allowProvisioningDeviceRegistration
       
       - name: Upload to TestFlight
         uses: apple-actions/upload-testflight-build@v1
