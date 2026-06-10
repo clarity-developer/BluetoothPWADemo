@@ -77,56 +77,59 @@ jobs:
         run: |
           cd ios/App/App
           /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ac.clarity.blecommissioning" Info.plist
-          echo "Bundle ID is now:"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Info.plist
+          echo "Bundle ID is now: ac.clarity.blecommissioning"
       
-      # ========== ARCHIVE WITH AUTOMATIC SIGNING ==========
+      # ========== INSTALL PROVISIONING PROFILE ==========
+      - name: Install provisioning profile
+        run: |
+          echo "${{ secrets.MOBILEPROVISION_BASE64 }}" | base64 --decode > profile.mobileprovision
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin <<< $(security cms -D -i profile.mobileprovision))
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
+          echo "Installed profile with UUID: $PROFILE_UUID"
+      
+      # ========== ARCHIVE ==========
       - name: Archive iOS app
         run: |
           cd ios/App
-          xcodebuild \
+          xcodebuild clean
+          xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
-            -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             DEVELOPMENT_TEAM=${{ secrets.TEAM_ID }} \
-            CODE_SIGN_STYLE=Automatic \
-            -allowProvisioningUpdates \
-            archive
+            PROVISIONING_PROFILE_SPECIFIER="GitHubActions_AppStore_Profile" \
+            CODE_SIGN_IDENTITY="iPhone Distribution" \
+            CODE_SIGN_STYLE=Manual \
+            ONLY_ACTIVE_ARCH=NO \
+            -destination 'generic/platform=iOS' \
+            | xcpretty
       
-      # ========== EXPORT WITH AUTOMATIC SIGNING ==========
-      - name: Export IPA
+      # ========== CREATE IPA DIRECTLY ==========
+      - name: Create IPA from archive
         run: |
-          cat > "$RUNNER_TEMP/ExportOptions.plist" << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>app-store-connect</string>
-              <key>teamID</key>
-              <string>${{ secrets.TEAM_ID }}</string>
-              <key>signingStyle</key>
-              <string>automatic</string>
-          </dict>
-          </plist>
-          EOF
+          APP_PATH=$(find "$RUNNER_TEMP/App.xcarchive/Products/Applications" -name "*.app" | head -1)
+          echo "App found at: $APP_PATH"
           
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            -exportPath "$RUNNER_TEMP/export" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -allowProvisioningUpdates
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
+          
+          cd "$RUNNER_TEMP"
+          zip -r App.ipa Payload
+          
+          echo "IPA created successfully"
+          ls -la App.ipa
       
       # ========== UPLOAD ==========
       - name: Upload to TestFlight
-        uses: apple-actions/upload-testflight-build@v1
-        with:
-          app-path: ${{ runner.temp }}/export/App.ipa
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          /usr/bin/xcrun altool --upload-app \
+            -f "$RUNNER_TEMP/App.ipa" \
+            -t ios \
+            --apiKey ${{ secrets.APPSTORE_KEY_ID }} \
+            --apiIssuer ${{ secrets.APPSTORE_ISSUER_ID }}
 
       # Optional: Keep your archive as artifact for debugging
       - name: Upload archive (artifact)
