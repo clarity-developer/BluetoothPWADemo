@@ -99,6 +99,14 @@ jobs:
           echo ""
           echo "=== Installed certificates ==="
           security find-identity -v -p codesigning
+
+      - name: Show bundle IDs
+        run: |
+          echo "=== App bundle ID ==="
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" ios/App/App/Info.plist
+          echo ""
+          echo "=== Profile bundle ID ==="
+          security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision | grep -A1 "application-identifier" | tail -1 | tr -d '[:space:]' | sed 's/<string>//' | sed 's/<\/string>//'          
           
       - name: Export IPA (simplified)
         run: |
