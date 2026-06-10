@@ -1,6 +1,6 @@
 {
-  "appId": "com.demo.blediagnostics",
-  "appName": "BLE Diagnostics",
+  "appId": "ac.clarity.blecommissioning",
+  "appName": "BLE Commissioning",
   "webDir": "www",
   "server": {
     "cleartext": true
