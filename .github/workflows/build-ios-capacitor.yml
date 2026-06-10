@@ -88,48 +88,59 @@ jobs:
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
           echo "Installed profile with UUID: $PROFILE_UUID"
       
-      # ========== ARCHIVE ==========
-      - name: Archive iOS app
+      # ========== BUILD AND PACKAGE IPA ==========
+      - name: Build iOS app
         run: |
-          cd ios/App
-          xcodebuild clean
-          xcodebuild archive \
+          cd webapp/ios/App
+          
+          # Clean build
+          xcodebuild clean -workspace App.xcworkspace -scheme App
+          
+          # Build .app
+          xcodebuild build \
             -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
-            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=${{ secrets.TEAM_ID }} \
             PROVISIONING_PROFILE_SPECIFIER="GitHubActions_AppStore_Profile" \
             CODE_SIGN_IDENTITY="iPhone Distribution" \
-            CODE_SIGN_STYLE=Manual \
-            ONLY_ACTIVE_ARCH=NO \
-            -destination 'generic/platform=iOS' \
-            | xcpretty
-      
-      # ========== CREATE IPA DIRECTLY ==========
-      - name: Create IPA from archive
-        run: |
-          APP_PATH=$(find "$RUNNER_TEMP/App.xcarchive/Products/Applications" -name "*.app" | head -1)
-          echo "App found at: $APP_PATH"
+            -derivedDataPath "$RUNNER_TEMP/build"
           
+          echo "Build completed. Looking for .app file..."
+          find "$RUNNER_TEMP/build" -name "*.app" -type d
+      
+      - name: Create IPA
+        run: |
+          # Find the .app file
+          APP_PATH=$(find "$RUNNER_TEMP/build" -name "*.app" -type d | head -1)
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: No .app file found"
+            echo "Searching in build directory:"
+            find "$RUNNER_TEMP/build" -type d
+            exit 1
+          fi
+          
+          echo "Found app at: $APP_PATH"
+          
+          # Create Payload folder and zip
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
-          
           cd "$RUNNER_TEMP"
           zip -r App.ipa Payload
           
-          echo "IPA created successfully"
+          echo "IPA created:"
           ls -la App.ipa
       
-      # ========== UPLOAD ==========
       - name: Upload to TestFlight
         run: |
           /usr/bin/xcrun altool --upload-app \
             -f "$RUNNER_TEMP/App.ipa" \
             -t ios \
             --apiKey ${{ secrets.APPSTORE_KEY_ID }} \
-            --apiIssuer ${{ secrets.APPSTORE_ISSUER_ID }}
+            --apiIssuer ${{ secrets.APPSTORE_ISSUER_ID }}    
 
       # Optional: Keep your archive as artifact for debugging
       - name: Upload archive (artifact)
