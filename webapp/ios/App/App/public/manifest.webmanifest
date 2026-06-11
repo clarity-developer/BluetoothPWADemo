@@ -1,0 +1,23 @@
+{
+  "name": "BLE Diagnostics Demo",
+  "short_name": "BLEDiag",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#03111f",
+  "theme_color": "#0f3d5e",
+  "description": "Offline-capable BLE diagnostics dashboard for ESP32 demo.",
+  "icons": [
+    {
+      "src": "./assets/icon-192.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/icon-512.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}

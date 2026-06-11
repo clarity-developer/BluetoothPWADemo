@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f3d5e" />
+  <title>BLE Diagnostics</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <section class="toolbar">
+      <button id="connectBtn" class="btn btn-primary">Connect</button>
+      <button id="disconnectBtn" class="btn">Disconnect</button>
+      <button id="refreshDevicesBtn" class="btn">Devices</button>
+      <button id="forgetBtn" class="btn">Forget</button>
+      <button id="checkUpdatesBtn" class="btn">Update</button>
+    </section>
+
+    <section class="device-row">
+      <label class="sr-only" for="knownDevices">Known devices</label>
+      <select id="knownDevices"></select>
+      <span id="connStatus" class="status">idle</span>
+    </section>
+
+    <section class="values-grid" aria-live="polite">
+      <article class="pill">
+        <h2>Voidage</h2>
+        <p id="voidageValue">-- %</p>
+      </article>
+      <article class="pill">
+        <h2>Temp</h2>
+        <p id="tempValue">-- C</p>
+      </article>
+      <article class="pill">
+        <h2>Run state</h2>
+        <p id="runStateValue">--</p>
+      </article>
+      <article class="pill">
+        <h2>Packets</h2>
+        <p id="packetsValue">0</p>
+      </article>
+    </section>
+
+    <section id="events" class="events" aria-live="polite"></section>
+  </main>
+
+  <script src="./app.js" type="module"></script>
+</body>
+</html>
