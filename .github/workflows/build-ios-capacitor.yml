@@ -4,10 +4,14 @@ on:
   push:
     branches: [main]
     paths:
+      - webapp/package.json
+      - webapp/package-lock.json
       - webapp/ios/**
       - .github/workflows/build-ios-capacitor.yml
   pull_request:
     paths:
+      - webapp/package.json
+      - webapp/package-lock.json
       - webapp/ios/**
       - .github/workflows/build-ios-capacitor.yml
   workflow_dispatch:
@@ -29,6 +33,17 @@ jobs:
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Install JavaScript dependencies
+        working-directory: webapp
+        run: npm ci
 
       - name: Install App Store Connect API key
         if: github.event_name != 'pull_request'
