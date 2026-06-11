@@ -24,8 +24,18 @@
 - Publish webapp folder to GitHub Pages.
 - Use HTTPS Pages URL in Bluefy to allow BLE permissions.
 
-## 5) iOS Wrapper and CI Build
-- Wrap webapp with Capacitor iOS target using generated native project.
-- Build static web assets into `webapp/www` before Capacitor sync.
-- Run unsigned iOS archive build on GitHub Actions macOS runner.
-- Upload `.xcarchive` as workflow artifact for inspection/signing downstream.
+## 5) Native Wrappers and CI Build
+- Use Capacitor native projects at `webapp/ios` and `webapp/android`.
+- Rebuild and sync web/native assets with `npm run cap:sync`.
+- Open `webapp/ios/App/App.xcodeproj` in Xcode and select the `App` scheme.
+- Open `webapp/android` in Android Studio for Android builds.
+- Bundle identifier: `ac.clarity.blecommissioning`.
+- GitHub Actions runs `npm ci`, syncs the Capacitor iOS project, then builds the committed Xcode project.
+
+## 6) Portable Bluetooth Layer
+- The UI talks to `bluetooth-transport.js`, not directly to `navigator.bluetooth`.
+- Web/Bluefy uses the Web Bluetooth transport.
+- iOS/Android use the native BLE transport exposed by `@capacitor-community/bluetooth-le`.
+- The same web bundle is copied into iOS and Android wrappers by Capacitor.
+
+Note: iOS `WKWebView` does not support Web Bluetooth. Native iOS/Android BLE flows go through the Capacitor BLE plugin, while browser/Bluefy flows still use Web Bluetooth.

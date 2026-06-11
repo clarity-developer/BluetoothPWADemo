@@ -1,9 +1,10 @@
-const CACHE_NAME = "ble-diag-pwa-v5";
+const CACHE_NAME = "ble-diag-pwa-v6";
 const APP_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./bluetooth-transport.js",
   "./manifest.webmanifest",
   "./assets/icon-192.svg",
   "./assets/icon-512.svg"

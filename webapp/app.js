@@ -1,3 +1,5 @@
+import { createBluetoothTransport } from "./bluetooth-transport.js";
+
 const BLE_SERVICE_UUID = "2d6b5ce7-7f30-4df0-a318-4cc4d7cb2f10";
 const TELEMETRY_CHAR_UUID = "df0da48d-e16f-4d08-90ee-1f4a4532f5bb";
 const NAME_CACHE_KEY = "bleDeviceNameCache";
@@ -20,10 +22,12 @@ const packetsValue = document.getElementById("packetsValue");
 const eventsBox = document.getElementById("events");
 
 let activeDevice = null;
-let activeServer = null;
-let activeCharacteristic = null;
 let packetCount = 0;
 const recentPayloadTimestamps = new Map();
+const bluetoothTransport = createBluetoothTransport({
+  serviceUuid: BLE_SERVICE_UUID,
+  characteristicUuid: TELEMETRY_CHAR_UUID
+});
 
 function isDuplicatePayload(payloadText) {
   const now = Date.now();
@@ -225,9 +229,7 @@ function tryApplyIdentityPayload(rawText) {
   return false;
 }
 
-function handleTelemetry(event) {
-  const text = new TextDecoder().decode(event.target.value);
-
+function handleTelemetry(text) {
   if (isDuplicatePayload(text)) {
     debugLog("drop duplicate payload");
     return;
@@ -266,38 +268,12 @@ function handleTelemetry(event) {
 }
 
 function onDisconnected() {
-  if (activeCharacteristic) {
-    activeCharacteristic.removeEventListener("characteristicvaluechanged", handleTelemetry);
-  }
-  activeServer = null;
-  activeCharacteristic = null;
   setStatus("disconnected", true);
   appendEvent("BLE disconnected");
 }
 
 async function teardownActiveConnection() {
-  if (activeCharacteristic) {
-    activeCharacteristic.removeEventListener("characteristicvaluechanged", handleTelemetry);
-    try {
-      await activeCharacteristic.stopNotifications();
-    } catch {
-      // Ignore; characteristic may already be stopped/disconnected.
-    }
-  }
-
-  if (activeDevice) {
-    activeDevice.removeEventListener("gattserverdisconnected", onDisconnected);
-    if (activeDevice.gatt && activeDevice.gatt.connected) {
-      try {
-        activeDevice.gatt.disconnect();
-      } catch {
-        // Ignore disconnect errors while replacing connection.
-      }
-    }
-  }
-
-  activeServer = null;
-  activeCharacteristic = null;
+  await bluetoothTransport.disconnect();
 }
 
 async function connect(device) {
@@ -311,27 +287,11 @@ async function connect(device) {
   debugLog(`connect start id=${device.id ? device.id.slice(0, 6) : "none"} name=${device.name || "(empty)"}`);
 
   activeDevice = device;
-  activeDevice.removeEventListener("gattserverdisconnected", onDisconnected);
-  activeDevice.addEventListener("gattserverdisconnected", onDisconnected);
 
-  activeServer = await activeDevice.gatt.connect();
-  const service = await activeServer.getPrimaryService(BLE_SERVICE_UUID);
-  activeCharacteristic = await service.getCharacteristic(TELEMETRY_CHAR_UUID);
-
-  await activeCharacteristic.startNotifications();
-  activeCharacteristic.removeEventListener("characteristicvaluechanged", handleTelemetry);
-  activeCharacteristic.addEventListener("characteristicvaluechanged", handleTelemetry);
-
-  // Some browsers omit BluetoothDevice.name entirely; read characteristic once for boot identity payload.
-  try {
-    const initialValue = await activeCharacteristic.readValue();
-    const initialText = new TextDecoder().decode(initialValue.buffer);
-    if (!tryApplyIdentityPayload(initialText)) {
-      debugLog("initial read had no boot identity payload");
-    }
-  } catch (err) {
-    debugLog(`initial read failed: ${err.message}`);
-  }
+  await bluetoothTransport.connect(activeDevice, {
+    onPayload: handleTelemetry,
+    onDisconnected
+  });
 
   const connectedLabel = labelForDevice(activeDevice);
   setStatus(`connected: ${connectedLabel}`);
@@ -340,17 +300,14 @@ async function connect(device) {
 }
 
 async function requestAndConnect() {
-  if (!navigator.bluetooth) {
-    setStatus("web bluetooth unsupported", true);
-    appendEvent("browser does not support Web Bluetooth");
+  if (!bluetoothTransport.isSupported) {
+    setStatus("bluetooth unsupported", true);
+    appendEvent("bluetooth is not available on this platform");
     return;
   }
 
   try {
-    const device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [BLE_SERVICE_UUID] }],
-      optionalServices: [BLE_SERVICE_UUID]
-    });
+    const device = await bluetoothTransport.requestDevice();
     debugLog(`chooser id=${device.id ? device.id.slice(0, 6) : "none"} name=${device.name || "(empty)"}`);
 
     await connect(device);
@@ -363,13 +320,14 @@ async function requestAndConnect() {
 }
 
 async function disconnectActive() {
-  if (!activeDevice || !activeDevice.gatt || !activeDevice.gatt.connected) {
+  if (!activeDevice) {
     setStatus("idle");
     return;
   }
 
   try {
     await teardownActiveConnection();
+    activeDevice = null;
     setStatus("disconnected");
   } catch (err) {
     setStatus("disconnect failed", true);
@@ -381,12 +339,12 @@ async function refreshKnownDevices() {
   knownDevices.innerHTML = "";
   debugLog("refresh start");
 
-  if (!navigator.bluetooth) {
-    appendOption("", "Web Bluetooth unsupported");
+  if (!bluetoothTransport.isSupported) {
+    appendOption("", "Bluetooth unsupported");
     return;
   }
 
-  if (!navigator.bluetooth.getDevices) {
+  if (!bluetoothTransport.supportsKnownDevices) {
     debugLog("refresh fallback: getDevices unsupported");
     appendActiveDeviceOption();
     return;
@@ -394,7 +352,7 @@ async function refreshKnownDevices() {
 
   let devices = [];
   try {
-    devices = await navigator.bluetooth.getDevices();
+    devices = await bluetoothTransport.getDevices();
   } catch (err) {
     appendEvent(`known devices unavailable: ${err.message}`);
     debugLog(`getDevices error=${err.message}`);
@@ -429,17 +387,14 @@ async function refreshKnownDevices() {
 }
 
 async function pickDeviceForDropdown() {
-  if (!navigator.bluetooth) {
-    setStatus("web bluetooth unsupported", true);
-    appendEvent("browser does not support Web Bluetooth");
+  if (!bluetoothTransport.isSupported) {
+    setStatus("bluetooth unsupported", true);
+    appendEvent("bluetooth is not available on this platform");
     return;
   }
 
   try {
-    const device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [BLE_SERVICE_UUID] }],
-      optionalServices: [BLE_SERVICE_UUID]
-    });
+    const device = await bluetoothTransport.requestDevice();
     debugLog(`devices click chooser id=${device.id ? device.id.slice(0, 6) : "none"} name=${device.name || "(empty)"}`);
 
     activeDevice = device;
@@ -453,7 +408,7 @@ async function pickDeviceForDropdown() {
 }
 
 async function handleDevicesClick() {
-  if (navigator.bluetooth && navigator.bluetooth.getDevices) {
+  if (bluetoothTransport.supportsKnownDevices) {
     await refreshKnownDevices();
     return;
   }
@@ -462,18 +417,18 @@ async function handleDevicesClick() {
 }
 
 async function connectKnownSelection() {
-  if (!navigator.bluetooth || !knownDevices.value) {
+  if (!bluetoothTransport.isSupported || !knownDevices.value) {
     return;
   }
 
-  if (!navigator.bluetooth.getDevices) {
+  if (!bluetoothTransport.supportsKnownDevices) {
     appendEvent("known device list unsupported, use Connect");
     return;
   }
 
   let devices = [];
   try {
-    devices = await navigator.bluetooth.getDevices();
+    devices = await bluetoothTransport.getDevices();
   } catch (err) {
     appendEvent(`known devices unavailable: ${err.message}`);
     return;
@@ -491,19 +446,19 @@ async function connectKnownSelection() {
 }
 
 async function forgetSelected() {
-  if (!navigator.bluetooth || !knownDevices.value) {
+  if (!bluetoothTransport.isSupported || !knownDevices.value) {
     appendEvent("no device selected to forget");
     return;
   }
 
-  if (!navigator.bluetooth.getDevices) {
+  if (!bluetoothTransport.supportsForget || !bluetoothTransport.supportsKnownDevices) {
     setStatus("forget unsupported", true);
-    appendEvent("forget not supported in this browser");
+    appendEvent("forget not supported on this platform");
     return;
   }
 
   try {
-    const devices = await navigator.bluetooth.getDevices();
+    const devices = await bluetoothTransport.getDevices();
     const selected = devices.find((d) => d.id === knownDevices.value);
 
     if (!selected) {
@@ -511,13 +466,7 @@ async function forgetSelected() {
       return;
     }
 
-    if (typeof selected.forget !== "function") {
-      setStatus("forget unsupported", true);
-      appendEvent("device.forget unsupported in this browser");
-      return;
-    }
-
-    await selected.forget();
+    await bluetoothTransport.forget(selected);
     appendEvent(`forgot ${selected.name || selected.id}`);
     await refreshKnownDevices();
   } catch (err) {

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 const rootFiles = [
   'index.html',
   'app.js',
+  'bluetooth-transport.js',
   'styles.css',
   'manifest.webmanifest',
   'sw.js'

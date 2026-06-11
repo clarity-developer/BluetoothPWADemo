@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">BLE Commissioning</string>
+    <string name="title_activity_main">BLE Commissioning</string>
+    <string name="package_name">ac.clarity.blecommissioning</string>
+    <string name="custom_url_scheme">ac.clarity.blecommissioning</string>
+</resources>
