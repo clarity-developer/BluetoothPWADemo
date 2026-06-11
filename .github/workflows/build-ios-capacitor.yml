@@ -23,6 +23,7 @@ jobs:
     env:
       APP_STORE_CONNECT_PRIVATE_KEYS_DIR: ~/.appstoreconnect/private_keys
       BUNDLE_ID: ac.clarity.blecommissioning
+      BUILD_NUMBER: ${{ github.run_number }}
       PROJECT_PATH: webapp/ios/App/App.xcodeproj
       SCHEME: App
       TEAM_ID: ${{ secrets.TEAM_ID }}
@@ -114,6 +115,7 @@ jobs:
             -destination "generic/platform=iOS" \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -skipPackagePluginValidation \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             "${SIGNING_ARGS[@]}"
 
       - name: Create export options
