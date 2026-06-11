@@ -33,8 +33,22 @@ firmware/**/.sconsign.dblite
 
 # Local web server and package artifacts
 node_modules/
+webapp/.npm-cache/
 coverage/
 dist/
 webapp/www/
-webapp/ios/
 webapp/.capacitor/
+
+# Local Xcode scratch data
+**/.xcode-derived/
+**/.xcode-packages/
+**/.xcode-home/
+**/.swiftpm-cache/
+**/.cache/
+
+# Local secrets and signing artifacts
+secrets/
+*.p8
+*.p12
+*.mobileprovision
+*.certSigningRequest
