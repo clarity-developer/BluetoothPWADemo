@@ -2,17 +2,26 @@
   "name": "ble-diagnostics-webapp",
   "version": "0.1.0",
   "private": true,
-  "description": "Bluetooth diagnostics PWA wrapped by Capacitor for iOS builds",
+  "description": "Portable Bluetooth diagnostics web core for web, iOS, and Android wrappers",
   "scripts": {
     "clean:www": "node -e \"require('fs').rmSync('www',{recursive:true,force:true});\"",
     "build:web": "node ./scripts/build-web.mjs",
-    "cap:sync:ios": "node ./scripts/build-web.mjs && npx cap sync ios"
+    "cap:add:ios": "npx cap add ios",
+    "cap:add:android": "npx cap add android",
+    "cap:sync": "npm run build:web && npx cap sync",
+    "cap:sync:ios": "npm run build:web && npx cap sync ios",
+    "cap:sync:android": "npm run build:web && npx cap sync android",
+    "sync:native": "npm run cap:sync",
+    "sync:ios": "npm run cap:sync:ios",
+    "sync:android": "npm run cap:sync:android"
   },
   "dependencies": {
-    "@capacitor/core": "^7.2.0"
+    "@capacitor-community/bluetooth-le": "^8.2.0",
+    "@capacitor/core": "^8.4.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.2.0",
-    "@capacitor/ios": "^7.2.0"
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/ios": "^8.4.0"
   }
 }
